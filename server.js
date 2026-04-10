@@ -14,10 +14,10 @@ const server = http.createServer((req, res) => {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(data);
         });
-    } else if (req.url.endsWith('styles.css')) {
-        fs.readFile(path.join(__dirname, 'styles.css'), 'utf8', (err, data) => {
+    } else if (req.url === '/logo.png') {
+        fs.readFile(path.join(__dirname, 'logo.png'), (err, data) => {
             if (err) return res.writeHead(404).end();
-            res.writeHead(200, { 'Content-Type': 'text/css' });
+            res.writeHead(200, { 'Content-Type': 'image/png' });
             res.end(data);
         });
     } else {
@@ -117,9 +117,9 @@ IMPORTANTE: Lee las opciones obtenidas. Si recibes una lista larga (ej. 20 carto
                 input_audio_transcription: { model: "whisper-1" },
                 turn_detection: {
                     type: "server_vad",
-                    threshold: 0.5,
+                    threshold: 0.85, // EXTREMO: Filtra ruidos de fondo suaves o estática (antes 0.5)
                     prefix_padding_ms: 300,
-                    silence_duration_ms: 200
+                    silence_duration_ms: 800 // EXTREMO: Espera más rato de silencio real antes de considerar la frase terminada (antes 200)
                 }
             }
         };
