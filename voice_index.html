@@ -287,8 +287,8 @@
 
                     // Errores
                     if (msg.type === 'error') {
-                        addMessage("❌ Error: " + msg.text, "bot");
-                        stopVoiceConversation();
+                        // Mostramos la advertencia pero NO cerramos la conexión a la fuerza
+                        addMessage("⚠️ Info: " + msg.text, "bot");
                     }
                 };
 

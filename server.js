@@ -137,6 +137,10 @@ IMPORTANTE: Lee las opciones obtenidas. Si recibes una lista larga (ej. 20 carto
         const event = JSON.parse(data.toString());
 
         if (event.type === 'error') {
+            // Ignoramos advertencias de sincronización de colas de OpenAI, ya que se resuelven internamente
+            if (event.error?.code === 'conversation_already_has_active_response' || event.error?.message?.includes('no active response')) {
+                return;
+            }
             console.error("🚨 Error de OpenAI:", event.error);
             if (clientWs.readyState === WebSocket.OPEN) {
                 clientWs.send(JSON.stringify({ type: 'error', text: event.error.message }));
@@ -201,6 +205,10 @@ IMPORTANTE: Lee las opciones obtenidas. Si recibes una lista larga (ej. 20 carto
             }
 
             console.log(`[Resultado n8n] ${functionName} -> Oculto en el log por longitud, devolviéndolo al Agente...`);
+
+            // Cancelar cualquier respuesta a medias que se haya activado por ruidos de fondo en el micrófono
+            // mientras n8n estaba buscando la base de datos:
+            openaiWs.send(JSON.stringify({ type: 'response.cancel' }));
 
             // Enviamos el cálculo final de vuelta al "cerebro" de OpenAI
             openaiWs.send(JSON.stringify({
