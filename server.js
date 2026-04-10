@@ -35,9 +35,14 @@ if (!OPENAI_API_KEY) {
     process.exit(1);
 }
 
-// Estos son los webhooks que hemos creado en n8n
-const N8N_CARTONES_URL = 'https://hugovera.lat/webhook/cartones2'; // Corregido a /webhook/ (Producción)
-const N8N_COTIZAR_URL = 'https://hugovera.lat/webhook/cotizar2';
+// Detectar automáticamente si estamos corriendo dentro del Docker de la Nube (DigitalOcean) o en la Laptop:
+// Si corremos en Docker, saltamos la IP Pública (que Docker bloquea) y le hablamos a n8n por el tubo interno de alta velocidad.
+const isDocker = fs.existsSync('/.dockerenv');
+const baseUrl = isDocker ? 'http://n8n:5678' : 'https://hugovera.lat';
+
+// Estos son los webhooks dinámicos auto-ajustables
+const N8N_CARTONES_URL = `${baseUrl}/webhook/cartones2`;
+const N8N_COTIZAR_URL = `${baseUrl}/webhook/cotizar2`;
 
 wss.on('connection', (clientWs) => {
     console.log("Cliente frontend conectado. Abriendo conexión a OpenAI Realtime API...");
