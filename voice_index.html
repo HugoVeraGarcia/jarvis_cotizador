@@ -205,16 +205,28 @@
 
         async function startVoiceConversation() {
             try {
-                // Configurar Audio
+                // Forzar audición y micrófono a 24000Hz específicos de OpenAI
                 audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+                micStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: 24000,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
 
                 const source = audioContext.createMediaStreamSource(micStream);
-                // Usamos ScriptProcessor porque es el más fácil de correr desde HTML remoto sin worker blob
+                // Extraer trozos de audio continuamente
                 scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
 
                 source.connect(scriptNode);
-                scriptNode.connect(audioContext.destination); // Bypass
+
+                // CELULARES: Evitar que el micrófono suene por tus propios parlantes creando un eco infinito
+                // y un bloqueo de Hardware local. Enviamos volumen 0 a los parlantes:
+                const dummyNode = audioContext.createGain();
+                dummyNode.gain.value = 0; // Mudo!
+                scriptNode.connect(dummyNode);
+                dummyNode.connect(audioContext.destination);
 
                 // Conectar
                 statusText.innerText = "Conectando al servidor...";
