@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis - Asistente IA Realtime</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .voice-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            padding: 15px;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .mic-button {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .mic-button.active {
+            background-color: #ef4444;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 15px rgba(239, 68, 68, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+
+        #statusText {
+            font-size: 14px;
+            color: #4b5563;
+            font-weight: 500;
+        }
+
+        /* Reutilizamos las clases de estilo del chat del usuario */
+        .chat-box {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message.bot .message-content {
+            background: #e5e7eb;
+            color: #1f2937;
+            align-self: flex-start;
+            padding: 10px 15px;
+            border-radius: 12px;
+            max-width: 80%;
+        }
+
+        .message.user .message-content {
+            background: #2563eb;
+            color: white;
+            align-self: flex-end;
+            padding: 10px 15px;
+            border-radius: 12px;
+            max-width: 80%;
+            margin-left: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page-logo">
+        <img src="../public/logo.png" alt="Logo Trupal" onerror="this.style.display='none'">
+    </div>
+
+    <div class="container" style="display: flex; flex-direction: column; height: 80vh;">
+        <div class="header">
+            <h1>🤖 Jarvis Voz</h1>
+            <div class="subtitle">A su servicio, Señor Stark</div>
+        </div>
+
+        <div class="chat-box" id="chatBox">
+            <div class="empty-state" style="text-align: center; color: #6b7280; font-style: italic;">
+                Presiona el micrófono debajo para empezar a hablar...
+            </div>
+        </div>
+
+        <div class="voice-controls">
+            <button id="micBtn" class="mic-button">🎤</button>
+            <div id="statusText">Desconectado</div>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let audioContext;
+        let micStream;
+        let scriptNode;
+
+        const micBtn = document.getElementById('micBtn');
+        const statusText = document.getElementById('statusText');
+        const chatBox = document.getElementById('chatBox');
+
+        let isRecording = false;
+
+        // Agregar burbujas de chat
+        function addMessage(text, role) {
+            const emptyState = document.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = text;
+
+            messageDiv.appendChild(contentDiv);
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // Conversión a Base64 para enviar
+        function bufferToBase64(buffer) {
+            let binary = '';
+            let bytes = new Uint8Array(buffer);
+            let len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
+
+        // Sistema de reproducción secuencial perfecto (Evita que se corten las palabras rápidas como "Mil")
+        const audioQueue = [];
+        let isPlaying = false;
+        let nextStartTime = 0;
+        let activeSources = []; // Seguimiento de todos los audios programados
+
+        function playNextAudio() {
+            if (audioQueue.length === 0 || isPlaying || !audioContext) return;
+            isPlaying = true;
+
+            try {
+                const b64Data = audioQueue.shift();
+                const binaryString = window.atob(b64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                // Convertir PCM16 a Float32
+                const int16Array = new Int16Array(bytes.buffer);
+                const audioBuffer = audioContext.createBuffer(1, int16Array.length, 24000);
+                const channelData = audioBuffer.getChannelData(0);
+                for (let i = 0; i < int16Array.length; i++) {
+                    channelData[i] = int16Array[i] / 32768;
+                }
+
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                activeSources.push(source);
+
+                // Si el audio anterior ya pasó, reiniciamos el reloj para ahora mismo (+ leve holgura)
+                if (nextStartTime < audioContext.currentTime) {
+                    nextStartTime = audioContext.currentTime + 0.02;
+                }
+
+                source.start(nextStartTime);
+                nextStartTime += audioBuffer.duration;
+
+                source.onended = () => {
+                    activeSources = activeSources.filter(s => s !== source);
+                };
+
+                // Continuar vaciando la cola inmediatamente para programar el siguiente audio SIN pausar
+                isPlaying = false;
+                if (audioQueue.length > 0) playNextAudio();
+
+            } catch (e) {
+                console.error("Error reproduciendo audio websocket", e);
+                isPlaying = false;
+                playNextAudio();
+            }
+        }
+
+        async function startVoiceConversation() {
+            try {
+                // Configurar Audio
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+
+                const source = audioContext.createMediaStreamSource(micStream);
+                // Usamos ScriptProcessor porque es el más fácil de correr desde HTML remoto sin worker blob
+                scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+
+                source.connect(scriptNode);
+                scriptNode.connect(audioContext.destination); // Bypass
+
+                // Conectar
+                statusText.innerText = "Conectando al servidor...";
+                // Detección automática para producción web (wss://) o local (ws://)
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.host; // Extrae automáticamente el dominio web o localhost:8080
+                ws = new WebSocket(`${protocol}//${host}`);
+
+                ws.onopen = () => {
+                    statusText.innerText = "¡Conectado! Habla ahora...";
+                    micBtn.classList.add('active');
+                    isRecording = true;
+                    addMessage("Sistemas en línea. Listo para transmitir.", "bot");
+
+                    // Manejo del evento de recolección del microfono
+                    scriptNode.onaudioprocess = (audioProcessingEvent) => {
+                        if (!isRecording || ws.readyState !== WebSocket.OPEN) return;
+
+                        const inputBuffer = audioProcessingEvent.inputBuffer;
+                        const inputData = inputBuffer.getChannelData(0);
+
+                        // Convertir a int16 pcm
+                        const pcm16 = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
+                            let val = Math.max(-1, Math.min(1, inputData[i]));
+                            pcm16[i] = val < 0 ? val * 0x8000 : val * 0x7FFF;
+                        }
+
+                        ws.send(JSON.stringify({
+                            type: 'input_audio',
+                            audio: bufferToBase64(pcm16.buffer)
+                        }));
+                    };
+                };
+
+                ws.onmessage = (event) => {
+                    const msg = JSON.parse(event.data);
+
+                    // Transcripciones de Texto
+                    if (msg.type === 'transcript') {
+                        addMessage(msg.text, msg.role);
+                    }
+
+                    // INTERRUPCIÓN: detener bot si el usuario habla
+                    if (msg.type === 'speech_started') {
+                        audioQueue.length = 0;
+                        activeSources.forEach(s => { try { s.stop(); } catch (e) { } });
+                        activeSources = [];
+                        nextStartTime = 0;
+                        isPlaying = false;
+                    }
+
+                    // Audio del Bot
+                    if (msg.type === 'audio' && msg.audio) {
+                        audioQueue.push(msg.audio);
+                        playNextAudio();
+                    }
+
+                    // Errores
+                    if (msg.type === 'error') {
+                        addMessage("❌ Error: " + msg.text, "bot");
+                        stopVoiceConversation();
+                    }
+                };
+
+                ws.onclose = () => {
+                    stopVoiceConversation();
+                };
+
+                ws.onerror = () => {
+                    statusText.innerText = "Error - Asegúrate de correr 'node server.js'";
+                    stopVoiceConversation();
+                };
+
+            } catch (err) {
+                console.error(err);
+                statusText.innerText = "Acepta los permisos de micrófono";
+            }
+        }
+
+        function stopVoiceConversation() {
+            if (scriptNode) scriptNode.disconnect();
+            if (micStream) micStream.getTracks().forEach(track => track.stop());
+            if (audioContext && audioContext.state !== 'closed') audioContext.close();
+            if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+
+            isRecording = false;
+            micBtn.classList.remove('active');
+            statusText.innerText = "Desconectado";
+        }
+
+        micBtn.addEventListener('click', () => {
+            if (!isRecording) {
+                startVoiceConversation();
+            } else {
+                stopVoiceConversation();
+            }
+        });
+    </script>
+</body>
+
+</html>
