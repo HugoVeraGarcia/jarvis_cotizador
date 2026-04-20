@@ -186,9 +186,15 @@ IMPORTANTE: Lee las opciones obtenidas. Si recibes una lista larga (ej. 20 carto
             try {
                 // Herramienta 1: CARTONES
                 if (functionName === 'obtener_cartones') {
-                    // Usando fetch nativo de Node.js (v18+)
                     const res = await fetch(N8N_CARTONES_URL);
-                    result = await res.json();
+                    const data = await res.json();
+                    // Formateamos como texto plano para que OpenAI lo lea sin ambigüedades
+                    const lista = data.lista_cartones || [];
+                    result = {
+                        cartones_disponibles: lista.join(', '),
+                        cantidad_total: data.cantidad_total || lista.length,
+                        texto: `Contamos con ${data.cantidad_total || lista.length} tipos de cartón disponibles: ${lista.join(', ')}.`
+                    };
                 }
                 // Herramienta 2: COTIZAR
                 else if (functionName === 'cotizar_cajas') {
@@ -206,9 +212,8 @@ IMPORTANTE: Lee las opciones obtenidas. Si recibes una lista larga (ej. 20 carto
 
             console.log(`[Resultado n8n] ${functionName} -> Oculto en el log por longitud, devolviéndolo al Agente...`);
 
-            // Cancelar cualquier respuesta a medias que se haya activado por ruidos de fondo en el micrófono
-            // mientras n8n estaba buscando la base de datos:
-            openaiWs.send(JSON.stringify({ type: 'response.cancel' }));
+            // NOTA: Se eliminó el response.cancel aquí porque interfería con la respuesta
+            // que debe generarse justo después de devolver el resultado de la herramienta.
 
             // Enviamos el cálculo final de vuelta al "cerebro" de OpenAI
             openaiWs.send(JSON.stringify({
