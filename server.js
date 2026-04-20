@@ -147,10 +147,15 @@ IMPORTANTE: Lee las opciones obtenidas. Si recibes una lista larga (ej. 20 carto
             }
         }
 
-        // BARGE-IN: Si detecta que el usuario interrumpió hablando ("alto", "no", "espera"), detiene el buffer web
+        // BARGE-IN: Si detecta que el usuario interrumpió hablando ("alto", "no", "espera"),
+        // detiene el audio en el frontend Y cancela la respuesta activa en OpenAI
         if (event.type === 'input_audio_buffer.speech_started') {
             if (clientWs.readyState === WebSocket.OPEN) {
                 clientWs.send(JSON.stringify({ type: 'speech_started' }));
+            }
+            // Cancelar lo que Jarvis estaba diciendo para que no siga hablando encima del usuario
+            if (openaiWs.readyState === WebSocket.OPEN) {
+                openaiWs.send(JSON.stringify({ type: 'response.cancel' }));
             }
         }
 
